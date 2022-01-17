@@ -495,8 +495,11 @@ function! s:is_buffer_ignored(bufnr) abort
     " TODO: blacklist/whitelist.
     let bufnr = +a:bufnr
     let buftype = getbufvar(bufnr, '&buftype')
-    if !empty(buftype)
-        call s:debug_log(printf('ignoring buffer with buftype=%s', buftype), {'bufnr': bufnr})
+	let YodeNvimCheckIgnore = luaeval('require("yode-nvim").yodeNeomakeCheckIgnore')
+    let shouldIgnore = YodeNvimCheckIgnore(a:bufnr)
+    if shouldIgnore
+        "call s:debug_log(printf('ignoring buffer with buftype=%s', buftype), {'bufnr': bufnr})
+        call s:debug_log(printf('ignoring buffer with buftype=%s, because Yode said it', buftype), {'bufnr': bufnr})
         return 1
     endif
 
