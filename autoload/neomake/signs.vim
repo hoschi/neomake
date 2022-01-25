@@ -27,12 +27,27 @@ function! neomake#signs#ResetFile(bufnr) abort
 endfunction
 
 function! neomake#signs#Reset(bufnr, type) abort
-    if has_key(s:placed_signs[a:type], a:bufnr)
-        " Clean any lingering, already retired signs.
-        call neomake#signs#CleanOldSigns(a:bufnr, a:type)
-        let s:last_placed_signs[a:type][a:bufnr] = s:placed_signs[a:type][a:bufnr]
-        unlet s:placed_signs[a:type][a:bufnr]
+    let bufnr = a:bufnr
+    let YodeNeomakeGetSeditorById = luaeval('require("yode-nvim").yodeNeomakeGetSeditorById')
+    let seditor = YodeNeomakeGetSeditorById(bufnr)
+    if !empty(seditor)
+        call neomake#log#debug(printf('CleanOldSigns replace seditor buffer %d with file buffer %d', bufnr, seditor.fileBufferId))
+        let bufnr = seditor.fileBufferId
     endif
+    call neomake#signs#CleanOldSigns(bufnr, a:type)
+
+    let YodeNvimNeomakeSeditorsConnected = luaeval('require("yode-nvim").yodeNeomakeSeditorsConnected')
+    let seditors = YodeNvimNeomakeSeditorsConnected(bufnr)
+    let buffers = map(seditors, 'v:val.seditorBufferId')
+    call add(buffers, bufnr)
+
+    for b in buffers
+        if has_key(s:placed_signs[a:type], b)
+            " Clean any lingering, already retired signs.
+            let s:last_placed_signs[a:type][b] = s:placed_signs[a:type][b]
+            unlet s:placed_signs[a:type][b]
+        endif
+    endfor
 endfunction
 
 let s:sign_order = {'neomake_file_err': 0, 'neomake_file_warn': 1,
@@ -118,8 +133,11 @@ function! neomake#signs#PlaceSigns(bufnr, entries, type) abort
     let place_new = []
     let log_context = {'bufnr': a:bufnr}
     let count_reused = 0
+    call neomake#log#debug(printf('##### s:PlaceSigns: buf %d, entries %d, type %s', a:bufnr, len(a:entries), a:type))
+    call neomake#log#debug(printf('##### s:PlaceSigns: placed signs: %s', placed_signs))
     for [lnum, sign_type] in items(entries_by_linenr)
         let existing_sign = get(placed_signs, lnum, [])
+        call neomake#log#debug(printf('###### s:PlaceSigns: reuse logic: entry lnum %d, found sign: %s', lnum, existing_sign))
         if empty(existing_sign) || existing_sign[1] !~# '^neomake_'.a:type.'_'
             call add(place_new, [lnum, sign_type])
             continue
@@ -183,24 +201,41 @@ endfunction
 
 " type may be either 'file' or 'project'
 function! neomake#signs#CleanOldSigns(bufnr, type) abort
-    if !has_key(s:last_placed_signs[a:type], a:bufnr)
-        return
+    let bufnr = a:bufnr
+    call neomake#log#debug(printf('CleanOldSigns for buffer %d', bufnr))
+    let YodeNeomakeGetSeditorById = luaeval('require("yode-nvim").yodeNeomakeGetSeditorById')
+    let seditor = YodeNeomakeGetSeditorById(bufnr)
+    if !empty(seditor)
+        call neomake#log#debug(printf('CleanOldSigns replace seditor buffer %d with file buffer %d', bufnr, seditor.fileBufferId))
+        let bufnr = seditor.fileBufferId
     endif
-    let placed_signs = s:last_placed_signs[a:type][a:bufnr]
-    unlet s:last_placed_signs[a:type][a:bufnr]
-    if bufexists(+a:bufnr)
-        call neomake#log#debug(printf('Cleaning %d old signs.', len(placed_signs)), {'bufnr': a:bufnr})
-        for sign_id in keys(placed_signs)
-            exe 'sign unplace '.sign_id.' buffer='.a:bufnr
-            if has_key(s:placed_signs[a:type], a:bufnr)
-                if has_key(s:placed_signs[a:type][a:bufnr], sign_id)
-                    unlet s:placed_signs[a:type][a:bufnr][sign_id]
+
+    let YodeNvimNeomakeSeditorsConnected = luaeval('require("yode-nvim").yodeNeomakeSeditorsConnected')
+    let seditors = YodeNvimNeomakeSeditorsConnected(bufnr)
+    let buffers = map(seditors, 'v:val.seditorBufferId')
+    call add(buffers, bufnr)
+    call neomake#log#debug(printf('CleanOldSigns for buffers %s', buffers))
+    for b in buffers
+        if !has_key(s:last_placed_signs[a:type], b)
+            call neomake#log#debug(printf('Cleaning no old signs for buf %d.', b))
+            continue
+        endif
+        let placed_signs = s:last_placed_signs[a:type][b]
+        unlet s:last_placed_signs[a:type][b]
+        if bufexists(+b)
+            call neomake#log#debug(printf('Cleaning %d old signs for buf %d.', len(placed_signs), b))
+            for sign_id in keys(placed_signs)
+                exe 'sign unplace '.sign_id.' buffer='.b
+                if has_key(s:placed_signs[a:type], b)
+                    if has_key(s:placed_signs[a:type][b], sign_id)
+                        unlet s:placed_signs[a:type][b][sign_id]
+                    endif
                 endif
-            endif
-        endfor
-    else
-        call neomake#log#debug_obj('Skipped cleaning of old signs in non-existing buffer '.a:bufnr, placed_signs)
-    endif
+            endfor
+        else
+            call neomake#log#debug_obj('Skipped cleaning of old signs in non-existing buffer '.b, placed_signs)
+        endif
+    endfor
 endfunction
 
 function! neomake#signs#RedefineSign(name, opts) abort

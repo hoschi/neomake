@@ -305,6 +305,19 @@ function! s:MakeJob(make_id, options) abort
         \ 'cwd': s:make_info[a:make_id].cwd,
         \ }, a:options))
 
+    let YodeNvimNeomakeGetSeditorInfo = luaeval('require("yode-nvim").yodeNeomakeGetSeditorInfo')
+	let seditor = YodeNvimNeomakeGetSeditorInfo(jobinfo.bufnr)
+	if empty(seditor)
+		call neomake#log#debug('##### s:MakeJob: normal file '. jobinfo.bufnr)
+		let jobinfo.seditor = {}
+    else
+        call neomake#log#debug('##### s:MakeJob: seditor('. jobinfo.bufnr .') and filebuffer('. seditor.fileBufferId .')')
+        let jobinfo.seditor = seditor
+        let jobinfo.bufnr = seditor.fileBufferId
+        " FIXME check if we really need this when we add the bufnr stuff here
+        let jobinfo.filename = expand("#".seditor.fileBufferId)
+    endif
+
     let maker = jobinfo.maker
 
     if has_key(maker, 'get_list_entries')
@@ -1620,10 +1633,28 @@ endfunction
 function! neomake#_clean_errors(context) abort
     if a:context.file_mode
         let bufnr = a:context.bufnr
+        call neomake#log#debug(printf('File-level cleaning start with buffer %d', bufnr))
+
+        let YodeNeomakeGetSeditorById = luaeval('require("yode-nvim").yodeNeomakeGetSeditorById')
+        let seditor = YodeNeomakeGetSeditorById(bufnr)
+        if !empty(seditor)
+            call neomake#log#debug(printf('File-level replace seditor bufer %d with file buffer %d', bufnr, seditor.fileBufferId))
+            let bufnr = seditor.fileBufferId
+        endif
+
         if has_key(s:current_errors['file'], bufnr)
             unlet s:current_errors['file'][bufnr]
         endif
         call neomake#highlights#ResetFile(bufnr)
+        let YodeNvimNeomakeSeditorsConnected = luaeval('require("yode-nvim").yodeNeomakeSeditorsConnected')
+        let seditors = YodeNvimNeomakeSeditorsConnected(bufnr)
+        for seditor in seditors
+            if has_key(s:current_errors['file'], seditor.seditorBufferId)
+                unlet s:current_errors['file'][seditor.seditorBufferId]
+            endif
+            call neomake#highlights#ResetFile(seditor.seditorBufferId)
+            call neomake#log#debug(printf('File-level clean for seditor %d', seditor.seditorBufferId))
+        endfor
         call neomake#log#debug('File-level errors cleaned.', a:context)
     else
         let s:current_errors['project'] = {}
@@ -1701,6 +1732,8 @@ function! s:ProcessEntries(jobinfo, entries, ...) abort
 
         let prev_list = file_mode ? getloclist(0) : getqflist()
         try
+            " TODO this is the entry point to fix the currently not correct
+            " display of entries in location/quickfix list
             let parsed_entries = make_list.add_entries_for_job(a:entries, a:jobinfo)
             if exists(':Assert') && !empty(a:entries)
                 Assert get(a:entries[0], 'text', '') !~# 'nmcfg:'
@@ -1721,8 +1754,42 @@ function! s:ProcessEntries(jobinfo, entries, ...) abort
     let skipped_without_bufnr = []
     let skipped_without_lnum = []
 
+    " get all entries to show highlights and stuff for all types of editors.
+    " replace buffer entries with them of seditor, if the current buffer is
+    " one.
+    let YodeNvimNeomakeSeditorsConnected = luaeval('require("yode-nvim").yodeNeomakeSeditorsConnected')
+    let seditors = YodeNvimNeomakeSeditorsConnected(a:jobinfo.bufnr)
+    let all_entries = copy(parsed_entries)
+    let buffer_entries = []
+    if empty(a:jobinfo.seditor)
+        call neomake#log#debug('##### s:ProcessEntries: clearing buffer_entries to fill it with seditor errors')
+        let buffer_entries = copy(parsed_entries)
+    endif
+    call neomake#log#debug(printf('###### s:ProcessEntries: seditors of file buffer: %s', seditors))
+    call neomake#log#debug(printf('###### s:ProcessEntries: errors: %d(%d) %s',len(parsed_entries), len(a:entries),  parsed_entries))
+    for seditor in seditors
+        let bufLines = len(getbufline(seditor.seditorBufferId, 1, '$'))
+        for entry in parsed_entries
+            if entry.lnum < seditor.startLine || entry.lnum > (seditor.startLine + bufLines)
+                call neomake#log#debug(printf('###### s:ProcessEntries: seditor %d, error line %d: SKIP', seditor.seditorBufferId, entry.lnum))
+                continue
+            endif
+            let newEntry = copy(entry)
+            " setting the bufnr back above isn't enough it seems
+            let newEntry.bufnr = seditor.seditorBufferId
+            let newEntry.col -= seditor.indentCount
+            let newEntry.lnum -= seditor.startLine
+            call neomake#log#debug(printf('###### s:ProcessEntries: seditor %d, error old/new %d/%d: ADD %s', seditor.seditorBufferId, entry.lnum, newEntry.lnum, newEntry))
+            call add(all_entries, newEntry)
+            if !empty(a:jobinfo.seditor) && a:jobinfo.seditor.seditorBufferId == seditor.seditorBufferId
+                call neomake#log#debug('###### s:ProcessEntries: add to buffer_entries as well')
+                call add(buffer_entries, newEntry)
+            endif
+        endfor
+    endfor
+
     let idx = -1
-    for entry in parsed_entries
+    for entry in buffer_entries
         let idx += 1
         if !file_mode
             if neomake#statusline#AddQflistCount(entry)
@@ -1730,17 +1797,21 @@ function! s:ProcessEntries(jobinfo, entries, ...) abort
             endif
         endif
 
+        if file_mode
+            if neomake#statusline#AddLoclistCount(entry.bufnr, entry)
+                let counts_changed = 1
+            endif
+        endif
+    endfor
+
+    let idx = -1
+    for entry in all_entries
+        let idx += 1
         if !entry.bufnr
             if debug
                 let skipped_without_bufnr += [idx]
             endif
             continue
-        endif
-
-        if file_mode
-            if neomake#statusline#AddLoclistCount(entry.bufnr, entry)
-                let counts_changed = 1
-            endif
         endif
 
         if !entry.lnum
@@ -1760,7 +1831,9 @@ function! s:ProcessEntries(jobinfo, entries, ...) abort
             call add(entries_with_lnum_by_bufnr[entry.bufnr], entry)
         endif
 
-        " Track all errors by buffer and line
+        " Track *all* errors by buffer and line. This is needed to show
+        " virtualtext and error message, so we need this for all types of
+        " editors
         let entry.maker_name = maker_name
         call neomake#_add_error(maker_type, entry)
     endfor
