@@ -305,8 +305,8 @@ function! s:MakeJob(make_id, options) abort
         \ 'cwd': s:make_info[a:make_id].cwd,
         \ }, a:options))
 
-    let YodeNvimNeomakeGetSeditorInfo = luaeval('require("yode-nvim").yodeNeomakeGetSeditorInfo')
-	let seditor = YodeNvimNeomakeGetSeditorInfo(jobinfo.bufnr)
+    let YodeGetSeditorById = luaeval('require("yode-nvim.api").getSeditorById')
+	let seditor = YodeGetSeditorById(jobinfo.bufnr)
 	if empty(seditor)
 		call neomake#log#debug('##### s:MakeJob: normal file '. jobinfo.bufnr)
 		let jobinfo.seditor = {}
@@ -314,7 +314,7 @@ function! s:MakeJob(make_id, options) abort
         call neomake#log#debug('##### s:MakeJob: seditor('. jobinfo.bufnr .') and filebuffer('. seditor.fileBufferId .')')
         let jobinfo.seditor = seditor
         let jobinfo.bufnr = seditor.fileBufferId
-        " FIXME check if we really need this when we add the bufnr stuff here
+        " TODO check if we really need this when we add the bufnr stuff here
         let jobinfo.filename = expand("#".seditor.fileBufferId)
     endif
 
@@ -1635,8 +1635,8 @@ function! neomake#_clean_errors(context) abort
         let bufnr = a:context.bufnr
         call neomake#log#debug(printf('File-level cleaning start with buffer %d', bufnr))
 
-        let YodeNeomakeGetSeditorById = luaeval('require("yode-nvim").yodeNeomakeGetSeditorById')
-        let seditor = YodeNeomakeGetSeditorById(bufnr)
+        let YodeGetSeditorById = luaeval('require("yode-nvim.api").getSeditorById')
+        let seditor = YodeGetSeditorById(bufnr)
         if !empty(seditor)
             call neomake#log#debug(printf('File-level replace seditor bufer %d with file buffer %d', bufnr, seditor.fileBufferId))
             let bufnr = seditor.fileBufferId
@@ -1646,8 +1646,8 @@ function! neomake#_clean_errors(context) abort
             unlet s:current_errors['file'][bufnr]
         endif
         call neomake#highlights#ResetFile(bufnr)
-        let YodeNvimNeomakeSeditorsConnected = luaeval('require("yode-nvim").yodeNeomakeSeditorsConnected')
-        let seditors = YodeNvimNeomakeSeditorsConnected(bufnr)
+        let YodeGetSeditorsConnected = luaeval('require("yode-nvim.api").getSeditorsConnected')
+        let seditors = YodeGetSeditorsConnected(bufnr)
         for seditor in seditors
             if has_key(s:current_errors['file'], seditor.seditorBufferId)
                 unlet s:current_errors['file'][seditor.seditorBufferId]
@@ -1757,8 +1757,8 @@ function! s:ProcessEntries(jobinfo, entries, ...) abort
     " get all entries to show highlights and stuff for all types of editors.
     " replace buffer entries with them of seditor, if the current buffer is
     " one.
-    let YodeNvimNeomakeSeditorsConnected = luaeval('require("yode-nvim").yodeNeomakeSeditorsConnected')
-    let seditors = YodeNvimNeomakeSeditorsConnected(a:jobinfo.bufnr)
+    let YodeGetSeditorsConnected = luaeval('require("yode-nvim.api").getSeditorsConnected')
+    let seditors = YodeGetSeditorsConnected(a:jobinfo.bufnr)
     let all_entries = copy(parsed_entries)
     let buffer_entries = []
     if empty(a:jobinfo.seditor)

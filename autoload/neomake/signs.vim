@@ -28,16 +28,16 @@ endfunction
 
 function! neomake#signs#Reset(bufnr, type) abort
     let bufnr = a:bufnr
-    let YodeNeomakeGetSeditorById = luaeval('require("yode-nvim").yodeNeomakeGetSeditorById')
-    let seditor = YodeNeomakeGetSeditorById(bufnr)
+    let YodeGetSeditorById = luaeval('require("yode-nvim.api").getSeditorById')
+    let seditor = YodeGetSeditorById(bufnr)
     if !empty(seditor)
         call neomake#log#debug(printf('CleanOldSigns replace seditor buffer %d with file buffer %d', bufnr, seditor.fileBufferId))
         let bufnr = seditor.fileBufferId
     endif
     call neomake#signs#CleanOldSigns(bufnr, a:type)
 
-    let YodeNvimNeomakeSeditorsConnected = luaeval('require("yode-nvim").yodeNeomakeSeditorsConnected')
-    let seditors = YodeNvimNeomakeSeditorsConnected(bufnr)
+    let YodeGetSeditorsConnected = luaeval('require("yode-nvim.api").getSeditorsConnected')
+    let seditors = YodeGetSeditorsConnected(bufnr)
     let buffers = map(seditors, 'v:val.seditorBufferId')
     call add(buffers, bufnr)
 
@@ -203,15 +203,15 @@ endfunction
 function! neomake#signs#CleanOldSigns(bufnr, type) abort
     let bufnr = a:bufnr
     call neomake#log#debug(printf('CleanOldSigns for buffer %d', bufnr))
-    let YodeNeomakeGetSeditorById = luaeval('require("yode-nvim").yodeNeomakeGetSeditorById')
-    let seditor = YodeNeomakeGetSeditorById(bufnr)
+    let YodeGetSeditorById = luaeval('require("yode-nvim.api").getSeditorById')
+    let seditor = YodeGetSeditorById(bufnr)
     if !empty(seditor)
         call neomake#log#debug(printf('CleanOldSigns replace seditor buffer %d with file buffer %d', bufnr, seditor.fileBufferId))
         let bufnr = seditor.fileBufferId
     endif
 
-    let YodeNvimNeomakeSeditorsConnected = luaeval('require("yode-nvim").yodeNeomakeSeditorsConnected')
-    let seditors = YodeNvimNeomakeSeditorsConnected(bufnr)
+    let YodeGetSeditorsConnected = luaeval('require("yode-nvim.api").getSeditorsConnected')
+    let seditors = YodeGetSeditorsConnected(bufnr)
     let buffers = map(seditors, 'v:val.seditorBufferId')
     call add(buffers, bufnr)
     call neomake#log#debug(printf('CleanOldSigns for buffers %s', buffers))
